@@ -22,6 +22,7 @@ Software is (as of right now) based on [another blog entry](http://codeandlife.c
 
 ### Keyboard interface ###
 The Type 5c uses an async 1200 baud non-inverted signal with one bit to signal the start of a transfer and then following 8 bit. If the last bit is high, then this is the last bit in this message. Else the reciever should wait for more packets.
+![keyboard pins](documentation/Images/pcb.png)
 That is my personal experience using a logic analyzer, so official documentation might differ, but that is really hard to prove with the lack of official documentation out there. I found a document describing general Sparc keyboard, altough I lost the sourcelink. You can find it it [documentation/Sparcs.pdf](documentation/Sparcs.pdf)
 
 
