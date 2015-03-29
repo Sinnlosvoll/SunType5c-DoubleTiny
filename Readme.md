@@ -17,7 +17,7 @@ Basically there is a master AT85, which handles USB communication and a buffer A
 
 ### USB ###
 The hardware-USB-implementation is heavily *cough* borrowed *cough* from [codeandlifes.com blog entry](http://codeandlife.com/2012/02/22/v-usb-with-attiny45-attiny85-without-a-crystal/).
-The plan looks like this: ![planned layout](documentation/images/pcb.png)
+The plan looks like this: ![planned layout](documentation/Images/pcb.png)
 Software is (as of right now) based on [another blog entry](http://codeandlife.com/2012/06/18/usb-hid-keyboard-with-v-usb/) and extended by myself.
 
 ### Keyboard interface ###
