@@ -55,12 +55,19 @@ PROGMEM const char usbHidReportDescriptor[USB_CFG_HID_REPORT_DESCRIPTOR_LENGTH] 
 	0xc0                           // END_COLLECTION
 };
 
+/*USB defs*/
 typedef struct {
 	uint8_t modifier;
 	uint8_t reserved;
 	uint8_t keycode[6];
 } keyboard_report_t;
 
+static keyboard_report_t keyboard_report; // sent to PC
+volatile static uchar LED_state = 0xff; // received from PC
+static uchar idleRate; // repeat rate for keyboards
+
+
+/* defs for counting and such */
 typedef struct {
 	uint8_t firstByte;
 	uint8_t secondByte;
@@ -69,11 +76,6 @@ typedef struct {
 
 byteBuffer_t byteBuffer;
 signed char keys_pressed = 0;
-static keyboard_report_t keyboard_report; // sent to PC
-volatile static uchar LED_state = 0xff; // received from PC
-static uchar idleRate; // repeat rate for keyboards
-
-
 unsigned char i = 0;
 unsigned counter = 0;
 unsigned char globalStorage = 0;
@@ -83,6 +85,7 @@ unsigned char globalStorage = 0;
 //  globalStorage & 0x10 is set when rs232Counters have to be reset
 unsigned char currentBitReading = 0;
 unsigned char currentBitWriting = 0;
+
 
 usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 	usbRequest_t *rq = (void *)data;
@@ -109,16 +112,16 @@ usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 	return 0; // by default don't return any data
 }
 
-#define RXDPIN PB0
+#define RXDPIN PB3
 #define TXDPIN PB4
-#define LEDPIN PB3
+#define LEDPIN PB0
 #define ledON() (PORTB |= 1 << LEDPIN)
 #define ledOFF() (PORTB &= ~(1 << LEDPIN))
 void blinkOn() {
-	PORTB |= 1 << TXDPIN; /*LED on */
+	PORTB |= 1 << LEDPIN; /*LED on */
 }
 void blinkOFF() {
-	PORTB &= ~(1 << TXDPIN); /*LED off*/
+	PORTB &= ~(1 << LEDPIN); /*LED off*/
 }
 
 #define NUM_LOCK 1
@@ -126,16 +129,17 @@ void blinkOFF() {
 #define SCROLL_LOCK 4
 
 usbMsgLen_t usbFunctionWrite(uint8_t * data, uchar len) {
+	//ledON();
 	if (data[0] == LED_state)
 		return 1;
 	else
 		LED_state = data[0];
 	
 	// LED state changed
-	// if(LED_state & CAPS_LOCK)
-	// 	PORTB |= 1 << PB0; // LED on
-	// else
-	// 	PORTB &= ~(1 << PB0); // LED off
+	if(LED_state & CAPS_LOCK)
+		PORTB |= 1 << LEDPIN; // LED on
+	else
+		PORTB &= ~(1 << LEDPIN); // LED off
 	
 	return 1; // Data read, not expecting more
 }
@@ -204,8 +208,9 @@ void resetRs232Counters() {
 int main() {
 	unsigned char button_release_counter = 0, state = STATE_WAIT;
 
-	DDRB = 0 << PB0; // PB0 as input
-	PORTB = 1 << PB1; // PB1 is input with internal pullup resistor activated
+	DDRB = 1 << LEDPIN; // LEDPIN as output
+	PORTB = 1 << LEDPIN; // LEDPIN low
+	PORTB = 1 << PB1;
 	
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
@@ -225,7 +230,7 @@ int main() {
 	// MCUCR |= (1 << ISC00); // set interrupts at PCINT0 to logical value change
 	// GIMSK |= (1 << INT0); // enable the above as interrupt
 
-	GIMSK |= (1 << PCIE);
+	//GIMSK |= (1 << PCIE);
 	
 	sei(); // Enable interrupts after re-enumeration
 	
@@ -235,29 +240,29 @@ int main() {
 
 		// TIMSK &= (0 << TOIE0);
 
-		if ((globalStorage & 0x20))
-		{
-			do
-			{
-				_delay_us(30);
-				wdt_reset();
-			} while ((globalStorage & 0x02));
-		}
+		// if ((globalStorage & 0x20))
+		// {
+		// 	do
+		// 	{
+		// 		_delay_us(30);
+		// 		wdt_reset();
+		// 	} while ((globalStorage & 0x02));
+		// }
 
 
 		 // _delay_us(30);
 		usbPoll();
 		_delay_us(30);
-		TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
+		//TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
 
 
 		// characters are sent when messageState == STATE_SEND and after receiving
 		// the initial LED state from PC (good way to wait until device is recognized)
-		if (usbInterruptIsReady())
-		{
-			PCMSK |= (1 << PCINT0);
-			globalStorage |= 0x20;
-		}
+		// if (0 & usbInterruptIsReady())
+		// {
+		// 	PCMSK |= (1 << PCINT0);
+		// 	globalStorage |= 0x20;
+		// }
 		if(usbInterruptIsReady() && state != STATE_WAIT && LED_state != 0xff){
 			switch(state) {
 			case STATE_SEND_KEY:

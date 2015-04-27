@@ -5393,6 +5393,7 @@ Source: www.kingbright.com</description>
 <part name="PU_RST" library="resistor" deviceset="R-EU_" device="0309/12" value="4k7"/>
 <part name="LED1" library="led" deviceset="LED" device="5MM"/>
 <part name="R_ACTLED" library="resistor" deviceset="R-EU_" device="0309/12" value="330"/>
+<part name="PU_RST1" library="resistor" deviceset="R-EU_" device="0309/12" value="4k7"/>
 </parts>
 <sheets>
 <sheet>
@@ -5422,6 +5423,7 @@ Source: www.kingbright.com</description>
 <instance part="PU_RST" gate="G$1" x="-15.24" y="58.42"/>
 <instance part="LED1" gate="G$1" x="165.1" y="-17.78"/>
 <instance part="R_ACTLED" gate="G$1" x="177.8" y="-25.4"/>
+<instance part="PU_RST1" gate="G$1" x="-12.7" y="-12.7" rot="R180"/>
 </instances>
 <busses>
 </busses>
@@ -5504,6 +5506,10 @@ Source: www.kingbright.com</description>
 <wire x1="-10.16" y1="7.62" x2="-10.16" y2="-2.54" width="0.1524" layer="91"/>
 <pinref part="SLAVEAT85" gate="A" pin="VCC"/>
 <wire x1="-10.16" y1="-2.54" x2="-5.08" y2="-2.54" width="0.1524" layer="91"/>
+<pinref part="PU_RST1" gate="G$1" pin="2"/>
+<wire x1="-17.78" y1="-12.7" x2="-17.78" y2="-2.54" width="0.1524" layer="91"/>
+<wire x1="-17.78" y1="-2.54" x2="-10.16" y2="-2.54" width="0.1524" layer="91"/>
+<junction x="-10.16" y="-2.54"/>
 </segment>
 <segment>
 <pinref part="P+4" gate="VCC" pin="VCC"/>
@@ -5627,6 +5633,13 @@ Source: www.kingbright.com</description>
 <wire x1="165.1" y1="-22.86" x2="165.1" y2="-25.4" width="0.1524" layer="91"/>
 <pinref part="R_ACTLED" gate="G$1" pin="1"/>
 <wire x1="165.1" y1="-25.4" x2="172.72" y2="-25.4" width="0.1524" layer="91"/>
+</segment>
+</net>
+<net name="N$10" class="0">
+<segment>
+<pinref part="SLAVEAT85" gate="A" pin="(PCINT5/~RESET/ADC0/DW)_PB5"/>
+<pinref part="PU_RST1" gate="G$1" pin="1"/>
+<wire x1="-5.08" y1="-12.7" x2="-7.62" y2="-12.7" width="0.1524" layer="91"/>
 </segment>
 </net>
 </nets>
