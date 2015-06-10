@@ -34,22 +34,16 @@ unsigned char currentBitReading = 0;
 unsigned char currentBitWriting = 0;
 
 
-#define RXDPIN PB0
-#define TXDPIN PB4
-#define LEDPIN PB3
+#define RXDPIN PB4
+#define CLKPIN PB3
+#define LEDPIN PB0
+#define KRXPIN PB1
+#define KTXPIN PB2
+
 #define ledON() (PORTB |= 1 << LEDPIN)
 #define ledOFF() (PORTB &= ~(1 << LEDPIN))
-void blinkOn() {
-	PORTB |= 1 << TXDPIN; /*LED on */
-}
-void blinkOFF() {
-	PORTB &= ~(1 << TXDPIN); /*LED off*/
-}
-
-#define NUM_LOCK 1
-#define CAPS_LOCK 2
-#define SCROLL_LOCK 4
-
+#define setRecieve() (DDRB = 0 << RXDPIN)
+#define setSend() (DDRB = 1 << RXDPIN)
 
 
 void key_down(uchar down_key) {
@@ -106,28 +100,33 @@ void resetRs232Counters() {
 int main() {
 	unsigned char button_release_counter = 0, state = STATE_WAIT;
 
-	DDRB = 0 << PB0; // PB0 as input
-	PORTB = 1 << PB1; // PB1 is input with internal pullup resistor activated
-	
+	// Master-side
+
+	DDRB = 0 << RXDPIN; // input
+	DDRB = 0 << CLKPIN; // input
+	PORTB = 0 << RXDPIN; // deactivate pull-up resistor
+	PORTB = 0 << CLKPIN; // deactivate pull-up resistor
+
+	// Keyboard-side
+
+	DDRB = 0 << KRXPIN; // input 
+	DDRB = 0 << KTXPIN; // input
+	PORTB = 0 << KRXPIN; // deactivate pull-up resistor
+	PORTB = 0 << KTXPIN; // deactivate pull-up resistor
+
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
 	
 	wdt_enable(WDTO_1S); // enable 1s watchdog timer
 
-	usbInit();
 	
-	usbDeviceDisconnect(); // enforce re-enumeration
-	for(i = 0; i<250; i++) { // wait 500 ms
-		wdt_reset(); // keep the watchdog happy
-		_delay_ms(2);
-	}
-	usbDeviceConnect();
-	
-	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness
+	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness and also serves as a 
 	// MCUCR |= (1 << ISC00); // set interrupts at PCINT0 to logical value change
 	// GIMSK |= (1 << INT0); // enable the above as interrupt
 
-	GIMSK |= (1 << PCIE);
+	GIMSK |= (1 << PCIE); // allow pin change interupts for PCINT[0-5]
+	PCMSK |= (1 << PCINT1); // enable pin change interrupt for the KRXPIN
+	PCMSK |= (1 << PCINT3); // enable pin change interrupt for the CLKPIN
 	
 	sei(); // Enable interrupts after re-enumeration
 	
@@ -146,36 +145,12 @@ int main() {
 			} while ((globalStorage & 0x02));
 		}
 
-
-		 // _delay_us(30);
-		usbPoll();
-		_delay_us(30);
 		TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
 
 
 		// characters are sent when messageState == STATE_SEND and after receiving
 		// the initial LED state from PC (good way to wait until device is recognized)
-		if (usbInterruptIsReady())
-		{
-			PCMSK |= (1 << PCINT0);
-			globalStorage |= 0x20;
-		}
-		if(usbInterruptIsReady() && state != STATE_WAIT && LED_state != 0xff){
-			switch(state) {
-			case STATE_SEND_KEY:
-				buildReport('x');
-				state = STATE_RELEASE_KEY; // release next
-				break;
-			case STATE_RELEASE_KEY:
-				buildReport(NULL);
-				state = STATE_WAIT; // go back to waiting
-				break;
-			default:
-				state = STATE_WAIT; // should not happen
-			}
-			
-			// start sending
-			usbSetInterrupt((void *)&keyboard_report, sizeof(keyboard_report));
+		
 		}
 	}
 	
@@ -238,7 +213,7 @@ void charDetected(uchar detected) {
 	
 }
 
-ISR (PCINT0_vect)
+ISR (PCINT1_vect)
 {
 	if ((globalStorage  & 0x02))
 	{
@@ -258,6 +233,12 @@ ISR (PCINT0_vect)
 	}
 
 
+}
+
+ISR(PCINT3_vect){
+	// interupt handler for a clk signal in PB3 which either means that we recieve a bit or are asked to send one
+	// so it is: check if send(1) or recieve(2); (1): push next bit to RXDPIN; (2): read RXDPIN and add to 
+	// interpreterbuffer 
 }
 
 ISR(TIMER0_OVF_vect) 
