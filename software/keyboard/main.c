@@ -18,14 +18,6 @@ typedef struct {
 	uint8_t secondByte;
 	uint8_t thirdByte;
 } byteBuffer_t;
-typedef struct {
-	uint8_t 5;
-	uint8_t 4;
-	uint8_t 3;
-	uint8_t 2;
-	uint8_t 1;
-	uint8_t 0;
-} largeByteBuffer_t;
 
 byteBuffer_t byteBuffer;
 signed char keys_pressed = 0;
@@ -142,8 +134,7 @@ void checkCommand() {
 }
 
 int main() {
-	unsigned char button_release_counter = 0, state = STATE_WAIT;
-
+	
 	// Master-side pin inits
 
 	DDRB = 0 << RXDPIN; // input
@@ -182,13 +173,13 @@ int main() {
 
 		// TIMSK &= (0 << TOIE0);
 
-		if ((globalStorage & 0x20))
+		if ((globalStorage & 0x08))
 		{
 			do
 			{
 				_delay_us(30);
 				wdt_reset();
-			} while ((globalStorage & 0x02));
+			} while ((globalStorage & 0x08g));
 		}
 
 		TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
@@ -279,6 +270,7 @@ ISR (PCINT1_vect) {
 
 	} else {
 		// check if byte is done
+		// or not, since the interpreter does that already
 	}
 
 
@@ -298,6 +290,7 @@ ISR(PCINT3_vect) {
 		if (haveToSendBackCounter == 0)
 		{
 			// set Pin back as input so we can recieve new messages
+			// as we are finished woth sending all bits
 			setRecieve();
 		}
 
