@@ -18,6 +18,14 @@ typedef struct {
 	uint8_t secondByte;
 	uint8_t thirdByte;
 } byteBuffer_t;
+typedef struct {
+	uint8_t 5;
+	uint8_t 4;
+	uint8_t 3;
+	uint8_t 2;
+	uint8_t 1;
+	uint8_t 0;
+} largeByteBuffer_t;
 
 byteBuffer_t byteBuffer;
 signed char keys_pressed = 0;
@@ -32,6 +40,11 @@ unsigned char globalStorage = 0;
 //  globalStorage & 0x10 is set when rs232Counters have to be reset
 unsigned char currentBitReading = 0;
 unsigned char currentBitWriting = 0;
+unsigned char keyboard_keys_down[6];
+unsigned char command = 0;
+uint64_t USBSendBuffer = 0;
+unsigned char haveToSendBackCounter = 0;
+unsigned char bitsReadFromUSB = 0;
 
 
 #define RXDPIN PB4
@@ -51,7 +64,7 @@ void key_down(uchar down_key) {
 	** additional keys will be ignored  */
 	if (keys_pressed < 6)
 	{
-		keyboard_report.keycode[keys_pressed] = down_key;
+		keyboard_keys_down[keys_pressed] = down_key;
 		keys_pressed++;
 	}
 }
@@ -60,13 +73,13 @@ void key_up(uchar up_key) {
 	uint8_t n;
 	for (i = 0; i < 6; i++)
 	{
-		if (keyboard_report.keycode[i] == up_key)
+		if (keyboard_keys_down[i] == up_key)
 		{
 			for (n = i; n <= 4; n++ )
 			{
-				keyboard_report.keycode[n] = keyboard_report.keycode[n + 1];
+				keyboard_keys_down[n] = keyboard_keys_down[n + 1];
 			}
-			keyboard_report.keycode[5] = 0;
+			keyboard_keys_down[5] = 0;
 			keys_pressed--;
 			break;
 		}
@@ -85,54 +98,87 @@ void resetRs232Counters() {
 	byteBuffer.firstByte  = 0;
 	byteBuffer.secondByte = 0;
 	byteBuffer.thirdByte  = 0;
-	counter      = 0;
-	globalStorage &= ~(0x10);
-	currentBitReading = 0;
-	currentBitWriting  = 0;
-	TIMSK &= (0 << TOIE0);
+	counter               = 0;
+	globalStorage         &= ~(0x10);
+	currentBitReading     = 0;
+	currentBitWriting     = 0;
+	TIMSK                 &= ~(1 << TOIE0); // disable timer div 8 interrupt, since we only need them when the keyboard sends stuff
 
 }
 
-#define STATE_WAIT 0
-#define STATE_SEND_KEY 1
-#define STATE_RELEASE_KEY 2
+void checkCommand() {
+	uint8_t n;
+	if ((command & 0b00001111))
+	{
+		// case: reply with which keys are down
+		
+		setSend();
+		haveToSendBackCounter = 4 + (keys_pressed * 8);
+		bitsReadFromUSB = 0;
+		USBSendBuffer = 0;
+		for (i = 3; i >= 0; i--)
+		{
+			// add the number of keys in the report to be sent out first in 4 bits
+			USBSendBuffer |= (((keys_pressed >> i) & 0x01) << 63);
+			USBSendBuffer = (USBSendBuffer >> 1);
+		}
+		for (i = 0; i < keys_pressed; i++)
+		{
+			for (n = 0; n < 8; n++)
+			{
+				// TODO: check if this works
+				USBSendBuffer |=  (((keyboard_keys_down[i] >> n) & 0x01) << 63);
+				USBSendBuffer = (USBSendBuffer >> 1);
+			}
+			
+		}
+
+	} elseif (command & 0b00001001) {
+		// case: set capslock lef to on
+
+	} elseif (command & 0b00001101) {
+		// case: set capslock led to off
+	}
+}
 
 int main() {
 	unsigned char button_release_counter = 0, state = STATE_WAIT;
 
-	// Master-side
+	// Master-side pin inits
 
 	DDRB = 0 << RXDPIN; // input
 	DDRB = 0 << CLKPIN; // input
 	PORTB = 0 << RXDPIN; // deactivate pull-up resistor
 	PORTB = 0 << CLKPIN; // deactivate pull-up resistor
 
-	// Keyboard-side
+	// Keyboard-side pin inits
 
 	DDRB = 0 << KRXPIN; // input 
 	DDRB = 0 << KTXPIN; // input
 	PORTB = 0 << KRXPIN; // deactivate pull-up resistor
 	PORTB = 0 << KTXPIN; // deactivate pull-up resistor
 
-	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
-		((uchar *)&keyboard_report)[i] = 0;
-	
-	wdt_enable(WDTO_1S); // enable 1s watchdog timer
-
 	
 	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness and also serves as a 
-	// MCUCR |= (1 << ISC00); // set interrupts at PCINT0 to logical value change
-	// GIMSK |= (1 << INT0); // enable the above as interrupt
-
 	GIMSK |= (1 << PCIE); // allow pin change interupts for PCINT[0-5]
 	PCMSK |= (1 << PCINT1); // enable pin change interrupt for the KRXPIN
 	PCMSK |= (1 << PCINT3); // enable pin change interrupt for the CLKPIN
 	
+
+	for(i=0; i<sizeof(keyboard_keys_down); i++) // clear report initially
+		keyboard_keys_down[i] = 0;
+	
+	wdt_enable(WDTO_1S); // enable 1s watchdog timer
 	sei(); // Enable interrupts after re-enumeration
 	
 	while(1) {
 		
 		wdt_reset(); // keep the watchdog happy
+		if ((bitsReadFromUSB & 0x04))
+		{
+			// 4 bits read, therefore command is done
+			checkCommand();
+		}
 
 		// TIMSK &= (0 << TOIE0);
 
@@ -191,18 +237,18 @@ void charDetected(uchar detected) {
 
 	if (currentBitWriting == 7 && (detected & 0x01))
 	{
-		blinkOn();
+		ledON();
 		key_down( mapReadByte(byteBuffer.firstByte & 0xFE) );
 		globalStorage |= 0x10;
-		blinkOFF();
+		ledOFF();
 	}
 
 	if (currentBitWriting == 15 && (detected & 0x01))
 	{
-		blinkOn();
+		ledON();
 		key_up( mapReadByte(byteBuffer.firstByte & 0xFE) );
 		globalStorage |= 0x10;
-		blinkOFF();
+		ledOFF();
 	}
 
 	currentBitReading++;
@@ -213,11 +259,14 @@ void charDetected(uchar detected) {
 	
 }
 
-ISR (PCINT1_vect)
-{
-	if ((globalStorage  & 0x02))
+ISR (PCINT1_vect) {
+	// Keyboard site
+	// each 
+	
+	if ((globalStorage  & 0x02)) // lastPinRead is set, so to save time reading the pin (again(interrupt from change)) we just toggle the 'current' read value
 	{
 		globalStorage ^= 0x01; // flip last bit to current value
+
 	} else {
 		globalStorage &= ~(0x01); // clear last bit
 		globalStorage |= (PINB & (1 << RXDPIN)); // update last read
@@ -226,7 +275,7 @@ ISR (PCINT1_vect)
 	if (globalStorage & 0x01)
 	{
 		globalStorage |= 0x08; // show currently reading state 
-		// TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
+		TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
 
 	} else {
 		// check if byte is done
@@ -235,10 +284,28 @@ ISR (PCINT1_vect)
 
 }
 
-ISR(PCINT3_vect){
+ISR(PCINT3_vect) {
+	// USB side
+
 	// interupt handler for a clk signal in PB3 which either means that we recieve a bit or are asked to send one
 	// so it is: check if send(1) or recieve(2); (1): push next bit to RXDPIN; (2): read RXDPIN and add to 
 	// interpreterbuffer 
+	if (haveToSendBackCounter != 0)
+	{
+		PORTB = ((USBSendBuffer & 0x01) << RXDPIN);
+		USBSendBuffer = (USBSendBuffer >> 1);
+		haveToSendBackCounter--;
+		if (haveToSendBackCounter == 0)
+		{
+			// set Pin back as input so we can recieve new messages
+			setRecieve();
+		}
+
+	} else {
+		command = (command << 1);
+		command |= (PINB << RXDPIN);
+		bitsReadFromUSB++;
+	}
 }
 
 ISR(TIMER0_OVF_vect) 

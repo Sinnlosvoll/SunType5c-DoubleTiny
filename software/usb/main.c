@@ -188,17 +188,8 @@ unsigned char mapReadByte(toSwitch) {
 	}
 }
 
-void resetRs232Counters() {
-
-	byteBuffer.firstByte  = 0;
-	byteBuffer.secondByte = 0;
-	byteBuffer.thirdByte  = 0;
-	counter      = 0;
-	globalStorage &= ~(0x10);
-	currentBitReading = 0;
-	currentBitWriting  = 0;
-	TIMSK &= (0 << TOIE0);
-
+uint8_t getBitsFromKeyboard(uint8_t amount) {
+	
 }
 
 #define STATE_WAIT 0
