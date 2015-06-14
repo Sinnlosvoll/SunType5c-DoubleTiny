@@ -124,6 +124,8 @@ void checkCommand() {
 			}
 			
 		}
+		USBSendBuffer = (USBSendBuffer >> ((63 - 1) - haveToSendBackCounter));
+		// probably this amount ( 63-1 due to the last shift in the n-loop), TODO: test this assumption
 
 	} elseif (command & 0b00001001) {
 		// case: set capslock lef to on
