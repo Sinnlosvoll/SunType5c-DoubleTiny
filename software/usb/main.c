@@ -76,16 +76,9 @@ typedef struct {
 
 byteBuffer_t byteBuffer;
 signed char keys_pressed = 0;
+signed char kbT_keys_pressed = 0;
+uint8_t kbT_keys[6];
 unsigned char i = 0;
-unsigned counter = 0;
-unsigned char globalStorage = 0;
-//  globalStorage & 0x08 show currently reading state
-//  globalStorage & 0x01 shows last pin Read
-//  globalStorage & 0x02 indicates whether lastPinReadIsSet
-//  globalStorage & 0x10 is set when rs232Counters have to be reset
-unsigned char currentBitReading = 0;
-unsigned char currentBitWriting = 0;
-
 
 usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 	usbRequest_t *rq = (void *)data;
@@ -139,7 +132,7 @@ usbMsgLen_t usbFunctionWrite(uint8_t * data, uchar len) {
 	return 1; // Data read, not expecting more
 }
 
-// Now only supports letters 'a' to 'z' and 0 (NULL) to clear buttons
+// not needed as the report is built by key_{up, down}
 void buildReport(uchar send_key) {
 	keyboard_report.modifier = 0;
 	
@@ -176,28 +169,35 @@ void key_up(uchar up_key) {
 	}
 }
 
-unsigned char mapReadByte(toSwitch) {
-	switch(toSwitch) {
-		case 0x1C: return 0x56; /* keypad -  */
-		default: return 0x04; /* keyboard a  */
-	}
-}
-
-uint8_t getBitsFromKeyboard(uint8_t amount) {
+uint8_t getBitsFromKeyboard(uint8_t length) {
 	uint8_t recieved = 0:
+	DDRB &= ~(1 << DATPIN); // change data pin over to inputh
 
-	for (i = 0; i < amount; i++	)
+	for (i = 0; i < length; i++	)
 	{
-		DDRB &= ~(1 << DATPIN); // change data pin over to input
 		PORTB |= (1 << CLKPIN); // clock high, request bit
 		// possible delay here, needs testing if needed
 		recieved |= ((PINB &  ( 1<< DATPIN)) >> (DATPIN -1)); // TODO: is this right?
 		recieved = (recieved << 1); // reading MSB first
 		PORTB &= ~(1 << CLKPIN); // set clock low
+		_delay_us(50); // not set in stone
 	}
 
 	DDRB |= 1 << DATPIN; // change back to output to keep it consistent
 	return recieved;
+}
+
+void sendBitsToKeyboard(uint8_t toSend, uint8_t length) {
+
+	for (i = 0; i < length; i++	)
+	{
+		PORTB |= (toSend >> (i << length)) << DATPIN; // send from left to right in msb-left notation
+		PORTB |= (1 << CLKPIN); // clock high, request bit
+		// possible delay here, needs testing if needed
+		_delay_us(150); // that would leave 2475 cycles for the slave to work
+		PORTB &= ~(1 << CLKPIN); // set clock low
+		_delay_us(50); // courtesy waitingb
+	}
 }
 
 #define STATE_WAIT 0
@@ -208,7 +208,7 @@ int main() {
 	unsigned char button_release_counter = 0, state = STATE_WAIT;
 
 	// Master-side pin inits
-
+	
 	DDRB |= 1 << DATPIN; // output first, will change over time
 	DDRB |= 1 << CLKPIN; // output
 	PORTB &= ~(1 << DATPIN); // low as base, external pull-down
@@ -217,12 +217,17 @@ int main() {
 	// LED
 	
 	DDRB |= 1 << LEDPIN;
-	PORTB &= ~(1 << LEDPIN); // low first
+	PORTB &= ~(1 << LEDPIN); // low at first
 
 	
 	
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
+
+	for (i = 0; i < 6; i++)
+	{
+		kbT_keys[i] = 0;
+	}
 	
 	wdt_enable(WDTO_1S); // enable 1s watchdog timer
 
@@ -235,11 +240,9 @@ int main() {
 	}
 	usbDeviceConnect();
 	
-	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness
-	// MCUCR |= (1 << ISC00); // set interrupts at PCINT0 to logical value change
-	// GIMSK |= (1 << INT0); // enable the above as interrupt
+	// i don't think this is needed
+	// TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness
 
-	//GIMSK |= (1 << PCIE);
 	
 	sei(); // Enable interrupts after re-enumeration
 	
@@ -247,146 +250,34 @@ int main() {
 		
 		wdt_reset(); // keep the watchdog happy
 
-		// TIMSK &= (0 << TOIE0);
-
-		// if ((globalStorage & 0x20))
-		// {
-		// 	do
-		// 	{
-		// 		_delay_us(30);
-		// 		wdt_reset();
-		// 	} while ((globalStorage & 0x02));
-		// }
 
 
 		 // _delay_us(30);
 		usbPoll();
-		_delay_us(30);
-		//TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
+		
+
+		// here we should question the kbT for keys down
+		sendBitsToKeyboard(0b00001111, 4); // send keys pressed
+		kbT_keys_pressed = getBitsFromKeyboard(4);
+		for (i = 0; i < kbT_keys_pressed; i++)
+		{
+			kbT_keys[i] = getBitsFromKeyboard(8);
+		}
+
+		// transfer kbT_keys into keyboard_report and maybe do some sorting or not
+
 
 
 		// characters are sent when messageState == STATE_SEND and after receiving
 		// the initial LED state from PC (good way to wait until device is recognized)
 		// if (0 & usbInterruptIsReady())
-		// {
-		// 	PCMSK |= (1 << PCINT0);
-		// 	globalStorage |= 0x20;
-		// }
-		if(usbInterruptIsReady() && state != STATE_WAIT && LED_state != 0xff){
-			switch(state) {
-			case STATE_SEND_KEY:
-				buildReport('x');
-				state = STATE_RELEASE_KEY; // release next
-				break;
-			case STATE_RELEASE_KEY:
-				buildReport(NULL);
-				state = STATE_WAIT; // go back to waiting
-				break;
-			default:
-				state = STATE_WAIT; // should not happen
-			}
-			
+
+		if(usbInterruptIsReady()){
+
 			// start sending
 			usbSetInterrupt((void *)&keyboard_report, sizeof(keyboard_report));
 		}
 	}
 	
 	return 0;
-}
-
-void charDetected(uchar detected) {
-
-	if(currentBitReading == 0 || currentBitReading == 9 || currentBitReading == 18) {
-		if ((detected & 0x01))
-		{
-			/* we should only allow valid frame delimters (1)s to advance our counting */
-			currentBitReading++;
-			return;       
-		} else {
-			/* in here we could think of some error handling if we wanted*/
-			return;
-		}
-	}
-	// if ((detected & 0x01))
-	// {
-	// 	 // longBlink(1);
-	// } else {
-	// 	longBlink(1);
-	// }
-
-	if (currentBitWriting >> 4)
-	{
-		byteBuffer.thirdByte  = (byteBuffer.thirdByte  << 1);
-		if ((detected & 0x01))
-			byteBuffer.thirdByte  += 0x01;
-
-	} else if (currentBitWriting >> 3) 
-	{
-		byteBuffer.secondByte = (byteBuffer.secondByte << 1); 
-		if ((detected & 0x01))
-			byteBuffer.secondByte += 0x01;
-
-	} else {
-		byteBuffer.firstByte  = (byteBuffer.firstByte  << 1);
-		if ((detected & 0x01))
-			byteBuffer.firstByte  += 0x01;
-	}
-
-	if (currentBitWriting == 7 && (detected & 0x01))
-	{
-		ledON();
-		key_down( mapReadByte(byteBuffer.firstByte & 0xFE) );
-		globalStorage |= 0x10;
-		ledOFF();
-	}
-
-	if (currentBitWriting == 15 && (detected & 0x01))
-	{
-		ledON();
-		key_up( mapReadByte(byteBuffer.firstByte & 0xFE) );
-		globalStorage |= 0x10;
-		ledOFF();
-	}
-
-	currentBitReading++;
-	currentBitWriting++;
-	if((globalStorage & 0x10))
-		resetRs232Counters();
-	
-	
-}
-
-ISR (PCINT0_vect)
-{
-	if ((globalStorage  & 0x02))
-	{
-		globalStorage ^= 0x01; // flip last bit to current value
-	} else {
-		globalStorage &= ~(0x01); // clear last bit
-		globalStorage |= (PINB & (1 << RXDPIN)); // update last read
-		globalStorage |= 0x02; //from now on don't read again but toggle and read from register
-	}
-	if (globalStorage & 0x01)
-	{
-		globalStorage |= 0x08; // show currently reading state 
-		// TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
-
-	} else {
-		// check if byte is done
-	}
-
-
-}
-
-ISR(TIMER0_OVF_vect) 
-{
-	counter++;
-	if ((globalStorage & 0x01) ^ ((globalStorage & 0x04) >> 2) ) // current read is different from last
-	{
-		counter = floor(counter / 6);
-		for (i = 0; i < counter; i++)
-		{
-			charDetected(~(globalStorage & 0x01));
-		}
-	}
 }
