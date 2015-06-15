@@ -112,17 +112,12 @@ usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 	return 0; // by default don't return any data
 }
 
-#define RXDPIN PB3
-#define TXDPIN PB4
+#define CLKPIN PB3
+#define DATPIN PB4
 #define LEDPIN PB0
+ // usb pins are defined in usbconfig.h
 #define ledON() (PORTB |= 1 << LEDPIN)
 #define ledOFF() (PORTB &= ~(1 << LEDPIN))
-void blinkOn() {
-	PORTB |= 1 << LEDPIN; /*LED on */
-}
-void blinkOFF() {
-	PORTB &= ~(1 << LEDPIN); /*LED off*/
-}
 
 #define NUM_LOCK 1
 #define CAPS_LOCK 2
@@ -189,7 +184,20 @@ unsigned char mapReadByte(toSwitch) {
 }
 
 uint8_t getBitsFromKeyboard(uint8_t amount) {
-	
+	uint8_t recieved = 0:
+
+	for (i = 0; i < amount; i++	)
+	{
+		DDRB &= ~(1 << DATPIN); // change data pin over to input
+		PORTB |= (1 << CLKPIN); // clock high, request bit
+		// possible delay here, needs testing if needed
+		recieved |= ((PINB &  ( 1<< DATPIN)) >> (DATPIN -1)); // TODO: is this right?
+		recieved = (recieved << 1); // reading MSB first
+		PORTB &= ~(1 << CLKPIN); // set clock low
+	}
+
+	DDRB |= 1 << DATPIN; // change back to output to keep it consistent
+	return recieved;
 }
 
 #define STATE_WAIT 0
@@ -199,9 +207,19 @@ uint8_t getBitsFromKeyboard(uint8_t amount) {
 int main() {
 	unsigned char button_release_counter = 0, state = STATE_WAIT;
 
-	DDRB = 1 << LEDPIN; // LEDPIN as output
-	PORTB = 1 << LEDPIN; // LEDPIN low
-	PORTB = 1 << PB1;
+	// Master-side pin inits
+
+	DDRB |= 1 << DATPIN; // output first, will change over time
+	DDRB |= 1 << CLKPIN; // output
+	PORTB &= ~(1 << DATPIN); // low as base, external pull-down
+	PORTB &= ~(1 << CLKPIN); // low as base, external pull-down 
+
+	// LED
+	
+	DDRB |= 1 << LEDPIN;
+	PORTB &= ~(1 << LEDPIN); // low first
+
+	
 	
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
@@ -316,18 +334,18 @@ void charDetected(uchar detected) {
 
 	if (currentBitWriting == 7 && (detected & 0x01))
 	{
-		blinkOn();
+		ledON();
 		key_down( mapReadByte(byteBuffer.firstByte & 0xFE) );
 		globalStorage |= 0x10;
-		blinkOFF();
+		ledOFF();
 	}
 
 	if (currentBitWriting == 15 && (detected & 0x01))
 	{
-		blinkOn();
+		ledON();
 		key_up( mapReadByte(byteBuffer.firstByte & 0xFE) );
 		globalStorage |= 0x10;
-		blinkOFF();
+		ledOFF();
 	}
 
 	currentBitReading++;

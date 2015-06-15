@@ -139,17 +139,22 @@ int main() {
 	
 	// Master-side pin inits
 
-	DDRB = 0 << RXDPIN; // input
-	DDRB = 0 << CLKPIN; // input
-	PORTB = 0 << RXDPIN; // deactivate pull-up resistor
-	PORTB = 0 << CLKPIN; // deactivate pull-up resistor
+	DDRB |= 0 << RXDPIN; // input
+	DDRB |= 0 << CLKPIN; // input
+	PORTB |= 0 << RXDPIN; // deactivate pull-up resistor
+	PORTB |= 0 << CLKPIN; // deactivate pull-up resistor
 
 	// Keyboard-side pin inits
 
-	DDRB = 0 << KRXPIN; // input 
-	DDRB = 0 << KTXPIN; // input
-	PORTB = 0 << KRXPIN; // deactivate pull-up resistor
-	PORTB = 0 << KTXPIN; // deactivate pull-up resistor
+	DDRB |= 0 << KRXPIN; // input 
+	DDRB |= 1 << KTXPIN; // output
+	PORTB |= 0 << KRXPIN; // deactivate pull-up resistor
+	PORTB |= 0 << KTXPIN; // set low by default, so no weird stuff happens
+
+	// LED
+	
+	DDRB |= 1 << LEDPIN;
+	PORTB |= 0 << LEDPIN;
 
 	
 	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness and also serves as a 
