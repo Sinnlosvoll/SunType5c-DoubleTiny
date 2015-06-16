@@ -94,7 +94,8 @@ void resetRs232Counters() {
 	globalStorage         &= ~(0x10);
 	currentBitReading     = 0;
 	currentBitWriting     = 0;
-	TIMSK                 &= ~(1 << TOIE0); // disable timer div 8 interrupt, since we only need them when the keyboard sends stuff
+	TIMSK                 &= ~(1 << TOIE0); 
+	// disable timer div 8 interrupt, since we only need them when the keyboard sends stuff
 
 }
 
@@ -108,7 +109,7 @@ void reportKeysDown() {
 	for (i = 3; i >= 0; i--)
 	{
 		// add the number of keys in the report to be sent out first in 4 bits
-		USBSendBuffer |= (((keys_pressed >> i) & 0x01) << 63);
+		USBSendBuffer |= ((((uint64_t)keys_pressed >> i) & 0x01) << 63);
 		USBSendBuffer = (USBSendBuffer >> 1);
 	}
 	for (i = 0; i < keys_pressed; i++)
@@ -138,24 +139,20 @@ void checkCommand() {
 int main() {
 	
 	// Master-side pin inits
-
 	DDRB |= 0 << RXDPIN; // input
 	DDRB |= 0 << CLKPIN; // input
 	PORTB |= 0 << RXDPIN; // deactivate pull-up resistor
 	PORTB |= 0 << CLKPIN; // deactivate pull-up resistor
 
 	// Keyboard-side pin inits
-
 	DDRB |= 0 << KRXPIN; // input 
 	DDRB |= 1 << KTXPIN; // output
 	PORTB |= 0 << KRXPIN; // deactivate pull-up resistor
 	PORTB |= 0 << KTXPIN; // set low by default, so no weird stuff happens
 
 	// LED
-	
 	DDRB |= 1 << LEDPIN;
 	PORTB |= 0 << LEDPIN;
-
 	
 	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness and also serves as a 
 	GIMSK |= (1 << PCIE); // allow pin change interupts for PCINT[0-5]
@@ -180,21 +177,16 @@ int main() {
 
 		// TIMSK &= (0 << TOIE0);
 
-		if ((globalStorage & 0x08))
+		if ((globalStorage & 0x08)) // currently reading
 		{
 			do
 			{
-				_delay_us(30);
+				_delay_us(200);
 				wdt_reset();
 			} while ((globalStorage & 0x08));
 		}
 
-		TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
-
-
-		// characters are sent when messageState == STATE_SEND and after receiving
-		// the initial LED state from PC (good way to wait until device is recognized)
-		
+		// TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
 	}
 	
 	return 0;
@@ -256,6 +248,19 @@ void charDetected(uint8_t detected) {
 	
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 ISR (PCINT1_vect) {
 	// Keyboard site
 	// each 
@@ -269,8 +274,9 @@ ISR (PCINT1_vect) {
 		globalStorage |= (PINB & (1 << RXDPIN)); // update last read
 		globalStorage |= 0x02; //from now on don't read again but toggle and read from register
 	}
-	if (globalStorage & 0x01)
+	if (globalStorage & 0x01) // last bit read is 1
 	{
+		// this is only done once per byte sent by the keyboard
 		globalStorage |= 0x08; // show currently reading state 
 		TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
 
@@ -283,28 +289,38 @@ ISR (PCINT1_vect) {
 }
 
 ISR(PCINT3_vect) {
-	// USB side
+	// usbT side
 
 	// interupt handler for a clk signal in PB3 which either means that we recieve a bit or are asked to send one
 	// so it is: check if send(1) or recieve(2); (1): push next bit to RXDPIN; (2): read RXDPIN and add to 
 	// interpreterbuffer 
-	if (haveToSendBackCounter != 0)
+	// 
+	if (PINB << CLKPIN)
 	{
-		PORTB = ((USBSendBuffer & 0x01) << RXDPIN);
-		USBSendBuffer = (USBSendBuffer >> 1);
-		haveToSendBackCounter--;
-		if (haveToSendBackCounter == 0)
-		{
-			// set Pin back as input so we can recieve new messages
-			// as we are finished woth sending all bits
-			setRecieve();
-		}
+		// only when changed to high
 
-	} else {
-		command = (command << 1);
-		command |= (PINB << RXDPIN);
-		bitsReadFromUSB++;
+		if (haveToSendBackCounter != 0)
+		{
+			// send the next byte out of RXDPIN
+			PORTB = ((USBSendBuffer & 0x01) << RXDPIN);
+			USBSendBuffer = (USBSendBuffer >> 1);
+			haveToSendBackCounter--;
+			if (haveToSendBackCounter == 0)
+			{
+				// set Pin back as input so we can recieve new messages
+				// as we are finished woth sending all bits
+				setRecieve();
+			}
+
+		} else {
+			// when there is a clock signal and we have nothing left in our queue
+			// we'll hopefully recieve a new command
+			command = (command << 1);
+			command |= (PINB << RXDPIN);
+			bitsReadFromUSB++;
+		}
 	}
+
 }
 
 ISR(TIMER0_OVF_vect) 
@@ -316,6 +332,8 @@ ISR(TIMER0_OVF_vect)
 		for (i = 0; i < counter; i++)
 		{
 			charDetected(~(globalStorage & 0x01));
+			// the counter increments about 6 times per bit sent by the kb
+			// so when it changes there were floor(counter/6) bits of the ~(now) state
 		}
 	}
 }
