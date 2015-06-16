@@ -66,19 +66,9 @@ static keyboard_report_t keyboard_report; // sent to PC
 volatile static uchar LED_state = 0xff; // received from PC
 static uchar idleRate; // repeat rate for keyboards
 
-
-/* defs for counting and such */
-typedef struct {
-	uint8_t firstByte;
-	uint8_t secondByte;
-	uint8_t thirdByte;
-} byteBuffer_t;
-
-byteBuffer_t byteBuffer;
-signed char keys_pressed = 0;
-signed char kbT_keys_pressed = 0;
-uint8_t kbT_keys[6];
-unsigned char i = 0;
+int8_t keys_pressed = 0;
+uint8_t i = 0;
+uint8_t keyHash = 0;
 
 usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 	usbRequest_t *rq = (void *)data;
@@ -142,33 +132,6 @@ void buildReport(uchar send_key) {
 		keyboard_report.keycode[0] = 0;
 }
 
-void key_down(uchar down_key) {
-	/* we only add a key to our pressed list, when we have less than 6 already pressed.
-	** additional keys will be ignored  */
-	if (keys_pressed < 6)
-	{
-		keyboard_report.keycode[keys_pressed] = down_key;
-		keys_pressed++;
-	}
-}
-
-void key_up(uchar up_key) {
-	uint8_t n;
-	for (i = 0; i < 6; i++)
-	{
-		if (keyboard_report.keycode[i] == up_key)
-		{
-			for (n = i; n <= 4; n++ )
-			{
-				keyboard_report.keycode[n] = keyboard_report.keycode[n + 1];
-			}
-			keyboard_report.keycode[5] = 0;
-			keys_pressed--;
-			break;
-		}
-	}
-}
-
 uint8_t getBitsFromKeyboard(uint8_t length) {
 	uint8_t recieved = 0:
 	DDRB &= ~(1 << DATPIN); // change data pin over to inputh
@@ -200,12 +163,30 @@ void sendBitsToKeyboard(uint8_t toSend, uint8_t length) {
 	}
 }
 
-#define STATE_WAIT 0
-#define STATE_SEND_KEY 1
-#define STATE_RELEASE_KEY 2
+uint8_t updateKeysPressed() {
 
-int main() {
-	unsigned char button_release_counter = 0, state = STATE_WAIT;
+	uint8_t currentHash = 0;
+
+	sendBitsToKeyboard(0b00001111, 4); // send keys pressed
+	keys_pressed = getBitsFromKeyboard(4);
+	for (i = 0; i < keys_pressed; i++)
+	{
+		keyboard_report.keycode[i] = getBitsFromKeyboard(8);
+	}
+	for (keys_pressedT; i < 6; i++)
+	{
+		keyboard_report.keycode[i] = 0;
+	}
+	for (i = 0; i < 6; i++)
+	{
+		currentHash += keyboard_report.keycode[i];
+		// this overflows and i know it
+	}
+	return currentHash;
+}
+
+
+int main() 
 
 	// Master-side pin inits
 	
@@ -224,10 +205,6 @@ int main() {
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
 
-	for (i = 0; i < 6; i++)
-	{
-		kbT_keys[i] = 0;
-	}
 	
 	wdt_enable(WDTO_1S); // enable 1s watchdog timer
 
@@ -250,30 +227,13 @@ int main() {
 		
 		wdt_reset(); // keep the watchdog happy
 
-
-
-		 // _delay_us(30);
 		usbPoll();
 		
+		i = updateKeysPressed(); // use i as a tmp variable
 
-		// here we should question the kbT for keys down
-		sendBitsToKeyboard(0b00001111, 4); // send keys pressed
-		kbT_keys_pressed = getBitsFromKeyboard(4);
-		for (i = 0; i < kbT_keys_pressed; i++)
-		{
-			kbT_keys[i] = getBitsFromKeyboard(8);
-		}
+		if(usbInterruptIsReady() && (i != keyHash)){
 
-		// transfer kbT_keys into keyboard_report and maybe do some sorting or not
-
-
-
-		// characters are sent when messageState == STATE_SEND and after receiving
-		// the initial LED state from PC (good way to wait until device is recognized)
-		// if (0 & usbInterruptIsReady())
-
-		if(usbInterruptIsReady()){
-
+			keyHash = i;
 			// start sending
 			usbSetInterrupt((void *)&keyboard_report, sizeof(keyboard_report));
 		}
