@@ -10,7 +10,7 @@ OBJFLAGS = -j .text -j .data -O ihex
 DUDEFLAGS = -p attiny85 -c usbasp-clone -v
 
 # Object files for the firmware (usbdrv/oddebug.o not strictly needed I think)
-OBJECTS = usbdrv/usbdrv.o usbdrv/oddebug.o usbdrv/usbdrvasm.o main.o
+OBJECTS = main.o
 
 # By default, build the firmware and command-line client, but do not flash
 all: main.hex
@@ -33,10 +33,6 @@ clean:
 # Main.elf requires additional objects to the firmware, not just main.o
 main.elf: $(OBJECTS)
 	$(CC) $(CFLAGS) $(OBJECTS) -o $@
-
-# Without this dependance, .o files will not be recompiled if you change 
-# the config! I spent a few hours debugging because of this...
-$(OBJECTS): usbdrv/usbconfig.h
 
 # From C source to .o object file
 %.o: %.c	

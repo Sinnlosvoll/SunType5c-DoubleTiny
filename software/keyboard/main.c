@@ -51,7 +51,7 @@ unsigned char bitsReadFromUSB = 0;
 #define setSend() (DDRB = 1 << RXDPIN)
 
 
-void key_down(uchar down_key) {
+void key_down(uint8_t down_key) {
 	/* we only add a key to our pressed list, when we have less than 6 already pressed.
 	** additional keys will be ignored  */
 	if (keys_pressed < 6)
@@ -61,7 +61,7 @@ void key_down(uchar down_key) {
 	}
 }
 
-void key_up(uchar up_key) {
+void key_up(uint8_t up_key) {
 	uint8_t n;
 	for (i = 0; i < 6; i++)
 	{
@@ -98,40 +98,40 @@ void resetRs232Counters() {
 
 }
 
-void checkCommand() {
+void reportKeysDown() {
+
 	uint8_t n;
-	if ((command & 0b00001111))
+	setSend();
+	haveToSendBackCounter = 4 + (keys_pressed * 8);
+	bitsReadFromUSB = 0;
+	USBSendBuffer = 0;
+	for (i = 3; i >= 0; i--)
 	{
-		// case: reply with which keys are down
-		
-		setSend();
-		haveToSendBackCounter = 4 + (keys_pressed * 8);
-		bitsReadFromUSB = 0;
-		USBSendBuffer = 0;
-		for (i = 3; i >= 0; i--)
+		// add the number of keys in the report to be sent out first in 4 bits
+		USBSendBuffer |= (((keys_pressed >> i) & 0x01) << 63);
+		USBSendBuffer = (USBSendBuffer >> 1);
+	}
+	for (i = 0; i < keys_pressed; i++)
+	{
+		for (n = 0; n < 8; n++)
 		{
-			// add the number of keys in the report to be sent out first in 4 bits
-			USBSendBuffer |= (((keys_pressed >> i) & 0x01) << 63);
+			// TODO: check if this works
+			USBSendBuffer |=  (((keyboard_keys_down[i] >> n) & 0x01) << 63);
 			USBSendBuffer = (USBSendBuffer >> 1);
 		}
-		for (i = 0; i < keys_pressed; i++)
-		{
-			for (n = 0; n < 8; n++)
-			{
-				// TODO: check if this works
-				USBSendBuffer |=  (((keyboard_keys_down[i] >> n) & 0x01) << 63);
-				USBSendBuffer = (USBSendBuffer >> 1);
-			}
-			
-		}
-		USBSendBuffer = (USBSendBuffer >> ((63 - 1) - haveToSendBackCounter));
-		// probably this amount ( 63-1 due to the last shift in the n-loop), TODO: test this assumption
+		
+	}
+	USBSendBuffer = (USBSendBuffer >> ((63 - 1) - haveToSendBackCounter));
+	// probably this amount ( 63-1 due to the last shift in the n-loop), TODO: test this assumption
 
-	} elseif (command & 0b00001001) {
-		// case: set capslock lef to on
+}
 
-	} elseif (command & 0b00001101) {
-		// case: set capslock led to off
+void checkCommand() {
+	switch (command) {
+		case 0b00001111: reportKeysDown(); break;
+		case 0b00001001: /* turn on capslock */ break;
+		case 0b00001101: /* turn off capslock */ break;
+		default: break; // maybe blink led somehow here
 	}
 }
 
@@ -186,7 +186,7 @@ int main() {
 			{
 				_delay_us(30);
 				wdt_reset();
-			} while ((globalStorage & 0x08g));
+			} while ((globalStorage & 0x08));
 		}
 
 		TIMSK |= (1 << TOIE0); /* enable timer overflow interupts */
@@ -195,13 +195,12 @@ int main() {
 		// characters are sent when messageState == STATE_SEND and after receiving
 		// the initial LED state from PC (good way to wait until device is recognized)
 		
-		}
 	}
 	
 	return 0;
 }
 
-void charDetected(uchar detected) {
+void charDetected(uint8_t detected) {
 
 	if(currentBitReading == 0 || currentBitReading == 9 || currentBitReading == 18) {
 		if ((detected & 0x01))

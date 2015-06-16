@@ -133,7 +133,7 @@ void buildReport(uchar send_key) {
 }
 
 uint8_t getBitsFromKeyboard(uint8_t length) {
-	uint8_t recieved = 0:
+	uint8_t recieved = 0;
 	DDRB &= ~(1 << DATPIN); // change data pin over to inputh
 
 	for (i = 0; i < length; i++	)
@@ -173,7 +173,7 @@ uint8_t updateKeysPressed() {
 	{
 		keyboard_report.keycode[i] = getBitsFromKeyboard(8);
 	}
-	for (keys_pressedT; i < 6; i++)
+	for (keys_pressed; i < 6; i++)
 	{
 		keyboard_report.keycode[i] = 0;
 	}
@@ -186,7 +186,7 @@ uint8_t updateKeysPressed() {
 }
 
 
-int main() 
+int main() {
 
 	// Master-side pin inits
 	
