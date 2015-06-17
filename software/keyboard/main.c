@@ -302,7 +302,12 @@ ISR(PCINT3_vect) {
 		if (haveToSendBackCounter != 0)
 		{
 			// send the next byte out of RXDPIN
-			PORTB = ((USBSendBuffer & 0x01) << RXDPIN);
+			if (USBSendBuffer & 0x01)
+			{
+				PORTB |= (1 << RXDPIN);
+			} else {
+				PORTB &= ~(1 << RXDPIN);
+			}
 			USBSendBuffer = (USBSendBuffer >> 1);
 			haveToSendBackCounter--;
 			if (haveToSendBackCounter == 0)
