@@ -37,6 +37,8 @@ unsigned char command = 0;
 uint64_t USBSendBuffer = 0;
 unsigned char haveToSendBackCounter = 0;
 unsigned char bitsReadFromUSB = 0;
+uint8_t clkPinState = 0; // kinda broad assumption but delays everywhere and the clock shouldn't start 
+ // right away since usb has to be initialised and such
 
 
 #define RXDPIN PB4
@@ -117,7 +119,7 @@ void reportKeysDown() {
 		for (n = 0; n < 8; n++)
 		{
 			// TODO: check if this works
-			USBSendBuffer |=  (((keyboard_keys_down[i] >> n) & 0x01) << 63);
+			USBSendBuffer |=  ((((uint64_t)keyboard_keys_down[i] >> n) & 0x01) << 63);
 			USBSendBuffer = (USBSendBuffer >> 1);
 		}
 		
@@ -127,12 +129,21 @@ void reportKeysDown() {
 
 }
 
+void turnOnCapsLock() {
+	// for testing only
+	ledON();
+}
+
+void turnOffCapsLock() {
+	ledOFF();
+}
+
 void checkCommand() {
 	switch (command) {
 		case 0b00001111: reportKeysDown(); break;
-		case 0b00001001: /* turn on capslock */ break;
-		case 0b00001101: /* turn off capslock */ break;
-		default: break; // maybe blink led somehow here
+		case 0b00001001: turnOnCapsLock(); break;
+		case 0b00001101: turnOffCapsLock(); break;
+		default: ledON(); break; // maybe blink led somehow here
 	}
 }
 
@@ -156,7 +167,7 @@ int main() {
 	
 	TCCR0B |= (1 << CS01); // timer 0 at clk/8 will generate randomness and also serves as a 
 	GIMSK |= (1 << PCIE); // allow pin change interupts for PCINT[0-5]
-	PCMSK |= (1 << PCINT1); // enable pin change interrupt for the KRXPIN
+	PCMSK = (1 << PCINT1); // enable pin change interrupt for the KRXPIN
 	PCMSK |= (1 << PCINT3); // enable pin change interrupt for the CLKPIN
 	
 
@@ -257,38 +268,7 @@ void charDetected(uint8_t detected) {
 
 
 
-
-
-
-
-ISR (PCINT1_vect) {
-	// Keyboard site
-	// each 
-	
-	if ((globalStorage  & 0x02)) // lastPinRead is set, so to save time reading the pin (again(interrupt from change)) we just toggle the 'current' read value
-	{
-		globalStorage ^= 0x01; // flip last bit to current value
-
-	} else {
-		globalStorage &= ~(0x01); // clear last bit
-		globalStorage |= (PINB & (1 << RXDPIN)); // update last read
-		globalStorage |= 0x02; //from now on don't read again but toggle and read from register
-	}
-	if (globalStorage & 0x01) // last bit read is 1
-	{
-		// this is only done once per byte sent by the keyboard
-		globalStorage |= 0x08; // show currently reading state 
-		TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
-
-	} else {
-		// check if byte is done
-		// or not, since the interpreter does that already
-	}
-
-
-}
-
-ISR(PCINT3_vect) {
+void pinChange3() {
 	// usbT side
 
 	// interupt handler for a clk signal in PB3 which either means that we recieve a bit or are asked to send one
@@ -325,6 +305,55 @@ ISR(PCINT3_vect) {
 			bitsReadFromUSB++;
 		}
 	}
+}
+
+void pinChange1() {
+	// Keyboard site
+	// each 
+	
+	if ((globalStorage  & 0x02)) // lastPinRead is set, so to save time reading the pin (again(interrupt from change)) we just toggle the 'current' read value
+	{
+		globalStorage ^= 0x01; // flip last bit to current value
+
+	} else {
+		globalStorage &= ~(0x01); // clear last bit
+		globalStorage |= (PINB & (1 << RXDPIN)); // set last read
+		globalStorage |= 0x02; //from now on don't read again but toggle and read from register
+	}
+	if (globalStorage & 0x01) // last bit read is 1
+	{
+		// this is only done once per byte sent by the keyboard
+		globalStorage |= 0x08; // show currently reading state 
+		TIMSK |= (1 << TOIE0);  //enable timer overflow interupts 
+
+	} else {
+		// check if byte is done
+		// or not, since the interpreter does that already
+	}
+
+
+}
+
+
+ISR(PCINT0_vect) {
+
+	if ((PINB & (1 << CLKPIN)) != clkPinState) // clock changed
+	{
+		if (clkPinState)
+		{
+			ledON();
+		} else {
+			ledOFF();
+		}
+		pinChange3();
+		clkPinState ^= 0x01; // flip last state to current one
+
+	} else {
+		pinChange1(); 
+		// we only have 2 possible interrupts so this should work fine
+	}
+	
+	
 
 }
 

@@ -62,7 +62,14 @@ typedef struct {
 	uint8_t keycode[6];
 } keyboard_report_t;
 
+typedef struct {
+	uint8_t numberOfOpenRequests;
+	uint8_t lengths[6];
+	uint8_t commands[6];
+} async_queue_t;
+
 static keyboard_report_t keyboard_report; // sent to PC
+async_queue_t async_queue;
 volatile static uchar LED_state = 0xff; // received from PC
 static uchar idleRate; // repeat rate for keyboards
 
@@ -106,21 +113,7 @@ usbMsgLen_t usbFunctionSetup(uchar data[8]) {
 #define CAPS_LOCK 2
 #define SCROLL_LOCK 4
 
-usbMsgLen_t usbFunctionWrite(uint8_t * data, uchar len) {
-	//ledON();
-	if (data[0] == LED_state)
-		return 1;
-	else
-		LED_state = data[0];
-	
-	// LED state changed
-	if(LED_state & CAPS_LOCK)
-		PORTB |= 1 << LEDPIN; // LED on
-	else
-		PORTB &= ~(1 << LEDPIN); // LED off
-	
-	return 1; // Data read, not expecting more
-}
+
 
 // not needed as the report is built by key_{up, down}
 void buildReport(uchar send_key) {
@@ -162,29 +155,50 @@ void sendBitsToKeyboard(uint8_t toSend, uint8_t length) {
 		} else {
 			PORTB &= ~(1 << DATPIN); // since |= won't pull low
 		}
+		_delay_us(10);
 		PORTB |= (1 << CLKPIN); // clock high
 		// possible delay here, needs testing if needed
 		_delay_us(50); // that would leave 825 cycles for the kbT to work
 		PORTB &= ~(1 << CLKPIN); // set clock low
 		_delay_us(50); // courtesy waiting
 	}
+	PORTB &= ~(1 << DATPIN);
+}
+
+usbMsgLen_t usbFunctionWrite(uint8_t * data, uchar len) {
+	//ledON();
+	if (data[0] == LED_state)
+		return 1;
+	else
+		LED_state = data[0];
+	
+	// LED state changed
+	if(LED_state & CAPS_LOCK) {
+
+		PORTB |= 1 << LEDPIN; // LED on
+		async_queue.commands[async_queue.numberOfOpenRequests] = 0b00001001;
+		async_queue.lengths[async_queue.numberOfOpenRequests] = 4;
+		async_queue.numberOfOpenRequests++;
+	}
+	else {
+		PORTB &= ~(1 << LEDPIN); // LED off
+		async_queue.commands[async_queue.numberOfOpenRequests] = 0b00001101;
+		async_queue.lengths[async_queue.numberOfOpenRequests] = 4;
+		async_queue.numberOfOpenRequests++;
+	}
+	
+	return 1; // Data read, not expecting more
 }
 
 uint8_t updateKeysPressed() {
 
 	uint8_t currentHash = 0;
-	PORTB &= ~(1 << DATPIN);
 	sendBitsToKeyboard(0b00001111, 4); // request keys pressed
-	PORTB &= ~(1 << DATPIN);
 	keys_pressed = getBitsFromKeyboard(4);
 	return 0;
 	for (i = 0; i < keys_pressed; i++)
 	{
 		keyboard_report.keycode[i] = getBitsFromKeyboard(8);
-	}
-	for (keys_pressed; i < 6; i++)
-	{
-		keyboard_report.keycode[i] = 0;
 	}
 	for (i = 0; i < 6; i++)
 	{
@@ -192,6 +206,14 @@ uint8_t updateKeysPressed() {
 		// this overflows and i know it
 	}
 	return currentHash;
+}
+
+void popSingleAsyncQueueRequest() {
+	if (async_queue.numberOfOpenRequests > 0)
+	{
+		async_queue.numberOfOpenRequests--;
+		sendBitsToKeyboard(async_queue.commands[async_queue.numberOfOpenRequests], async_queue.lengths[async_queue.numberOfOpenRequests]);
+	}
 }
 
 
@@ -214,6 +236,12 @@ int main() {
 	for(i=0; i<sizeof(keyboard_report); i++) // clear report initially
 		((uchar *)&keyboard_report)[i] = 0;
 
+	async_queue.numberOfOpenRequests = 0;
+	for (i = 0; i < 6; i++)
+	{
+		async_queue.commands[i] = 0;
+		async_queue.lengths[i] = 0;
+	}
 	
 	wdt_enable(WDTO_1S); // enable 1s watchdog timer
 
@@ -237,7 +265,9 @@ int main() {
 		wdt_reset(); // keep the watchdog happy
 
 		usbPoll();
-		
+
+		popSingleAsyncQueueRequest(); 
+
 		_delay_ms(2);
 		i = updateKeysPressed(); // use i as a tmp variable
 		// time that takes: 
